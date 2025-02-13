@@ -22,6 +22,7 @@ const (
 	Sleeping
 	Dying
 	ThrowingGrenade
+	Reloading
 )
 const (
 	jumpVelocity = -5.0 // Initial upward velocity for jumping
@@ -45,6 +46,7 @@ type Player struct {
 	RunFrames             []rl.Texture2D // Frames for running animation
 	IdleFrames            []rl.Texture2D // Frames for idle animation
 	ShootFrames           []rl.Texture2D // Frames for shooting animation
+	ReloadingFrames       []rl.Texture2D // Frames for reloading animation
 	SittingFrames         []rl.Texture2D // Frames for sitting animation
 	SittingShootingFrames []rl.Texture2D // Frames for sitting shooting animation
 	JumpFrames            []rl.Texture2D // Frames for jumping animation
@@ -58,11 +60,16 @@ type Player struct {
 	switchDown            bool           // Indicates when to start descending
 	throwingFinishedTime  time.Time      // Track when grenade throw animation finishes
 	threwGrenade          bool           // Track if grenade was thrown
+	Ammo                  int            // Current ammo count
+	MaxAmmo               int            // Maximum ammo capacity
+	IsReloading           bool           // Flag to check if reloading
 
 	// Sounds
-	WalkSound  rl.Sound
-	RunSound   rl.Sound
-	ShootSound rl.Sound
+	WalkSound      rl.Sound
+	RunSound       rl.Sound
+	ShootSound     rl.Sound
+	ReloadSound    rl.Sound
+	EmptyClipSound rl.Sound
 
 	// New attributes
 	Health    float64 // Player health
@@ -81,14 +88,26 @@ func (p *Player) UpdateHeldItem() {
 
 func (p *Player) Shoot() {
 	if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
-		bulletPosition := p.Position
-		bulletPosition.Y += p.Height / 2 // Adjust to shoot from the middle
-		newBullet := NewBullet(bulletPosition.X, bulletPosition.Y, 10, p.FacingRight)
-		p.Bullets = append(p.Bullets, newBullet)
+		if p.Ammo > 0 && !p.IsReloading {
+			bulletPosition := p.Position
+			bulletPosition.Y += p.Height / 2 // Adjust to shoot from the middle
+			newBullet := NewBullet(bulletPosition.X, bulletPosition.Y, 10, p.FacingRight)
+			p.Bullets = append(p.Bullets, newBullet)
 
-		// Play shoot sound
-		if !rl.IsSoundPlaying(p.ShootSound) {
-			rl.PlaySound(p.ShootSound)
+			p.Ammo-- // Reduce ammo when shooting
+
+			if !rl.IsSoundPlaying(p.ShootSound) {
+				rl.PlaySound(p.ShootSound)
+			}
+		} else if p.Ammo == 0 && !p.IsReloading {
+			// Play empty clip sound if out of ammo
+			if !rl.IsSoundPlaying(p.EmptyClipSound) {
+				rl.PlaySound(p.EmptyClipSound)
+			}
+
+			// Set shooting state but only display the first frame
+			p.setState(Shooting)
+			p.CurrentFrame = 0 // Always show the first frame when out of ammo
 		}
 	}
 }
@@ -135,18 +154,25 @@ func InitPlayer(worldWidth, worldHeight int) {
 		Health:       100,              // Initialize with full health
 		MaxHealth:    100,              // Set maximum health
 		Inventory:    NewInventory(10), // Initialize with 10 slots
+		Ammo:         30,               // Set starting ammo
+		MaxAmmo:      30,               // Max ammo capacity
+		IsReloading:  false,            // Initialize reloading state
 	}
 	// Load sounds
 	PlayerInstance.WalkSound = rl.LoadSound("assets/sounds/walking.mp3")
 	PlayerInstance.RunSound = rl.LoadSound("assets/sounds/running.mp3")
 	PlayerInstance.ShootSound = rl.LoadSound("assets/sounds/machineguneffect.wav")
+	PlayerInstance.ReloadSound = rl.LoadSound("assets/sounds/reload.mp3")
+	PlayerInstance.EmptyClipSound = rl.LoadSound("assets/sounds/emptyclip.mp3")
 
 	/***********************************LOAD SPRITES*********************************************** */
 
 	// Load sprite sheet
 	spriteSheet := rendering.LoadSpriteSheet("assets/sprites/shooterspritesheet.png")
 	spriteSheet2 := rendering.LoadSpriteSheet("assets/sprites/shooterspritesheet2.png")
+	spriteSheet3 := rendering.LoadSpriteSheet("assets/sprites/shooterspritesheet3.png")
 	spriteSheet4 := rendering.LoadSpriteSheet("assets/sprites/shooterspritesheet4.png")
+
 	// Load explosion frame from spritesheet4
 	explosionRect := rl.Rectangle{X: 1600, Y: 346, Width: 157, Height: 93}
 	PlayerInstance.ExplosionTex = spriteSheet4.ImageAt(explosionRect, rl.Blank) // Load the explosion texture	// Load walking frames
@@ -199,6 +225,21 @@ func InitPlayer(worldWidth, worldHeight int) {
 	}
 	for _, frame := range shooting1Frames {
 		PlayerInstance.ShootFrames = append(PlayerInstance.ShootFrames, spriteSheet.ImageAt(frame, rl.Blank))
+	}
+
+	// Load Reloading frames
+	reloadingFrames := []rl.Rectangle{
+		{X: 306, Y: 73, Width: 80, Height: 135},  // Frame 1
+		{X: 499, Y: 47, Width: 54, Height: 161},  // Frame 2
+		{X: 691, Y: 47, Width: 55, Height: 162},  // Frame 3
+		{X: 884, Y: 47, Width: 75, Height: 161},  // Frame 4
+		{X: 1074, Y: 47, Width: 54, Height: 160}, // Frame 5
+		{X: 1265, Y: 47, Width: 53, Height: 159}, // Frame 6 (New)
+		{X: 1457, Y: 47, Width: 57, Height: 159}, // Frame 7 (New)
+	}
+
+	for _, frame := range reloadingFrames {
+		PlayerInstance.ReloadingFrames = append(PlayerInstance.ReloadingFrames, spriteSheet3.ImageAt(frame, rl.Blank))
 	}
 
 	// Load Sitting frames
@@ -346,6 +387,12 @@ func (p *Player) setState(state PlayerState) {
 
 func (p *Player) Update(worldHeight int, worldWidth int, zombies []*Zombie) {
 	// fmt.Println("players starting out y position: ", p.Position.Y)
+	if p.State == Reloading && p.CurrentFrame >= len(p.ReloadingFrames)-1 {
+		p.Ammo = p.MaxAmmo // Refill ammo
+		p.setState(Idle)
+		rl.StopSound(p.ReloadSound)
+		p.IsReloading = false
+	}
 
 	// Update bullets
 	for _, bullet := range p.Bullets {
@@ -395,33 +442,31 @@ func (p *Player) Update(worldHeight int, worldWidth int, zombies []*Zombie) {
 
 	// Apply gravity and handle jumping
 	if !onGround || p.State == Jumping {
-		// Print player's position for debugging
-		// fmt.Println("Player Y Position:", p.Position.Y)
-
-		// Apply gravity effect based on ascending or descending state
-		if p.Speed.Y < 0 && !p.switchDown { // Ascending
-			fmt.Println("Ascending")
-
-			// Switch to descending if near the apex
-			if p.Speed.Y >= -0.5 { // Lower threshold for more gradual transition
-				fmt.Println("Switching down")
+		if p.Speed.Y < 0 && !p.switchDown { // Ascending phase
+			if p.Speed.Y >= -1.0 { // Nearing the peak of jump
 				p.switchDown = true
 			}
-			p.Speed.Y += gravity * 0.000001 // Reduce gravity effect while ascending
-		} else { // Descending
-			p.Speed.Y += gravity * 0.005 // Normal gravity effect for descent
+			p.Speed.Y += gravity * 0.0005 // Gradual deceleration while ascending
+		} else { // Descending phase
+			p.Speed.Y += gravity * 0.02 // Faster descent for natural gravity
 		}
 
-		// Update the player's vertical position with the adjusted speed
+		// Update the player's vertical position
 		p.Position.Y += p.Speed.Y
-
 	}
 
-	// If player is grounded and was jumping, reset to Idle and reset switchDown
+	// Handle jump input
+	if rl.IsKeyPressed(rl.KeySpace) && onGround {
+		p.setState(Jumping)
+		p.Speed.Y = -6.5 // Set initial upward velocity
+		p.switchDown = false
+	}
+
+	// If player is grounded, reset jump state
 	if p.Position.Y >= float32(worldHeight)-p.Height {
 		p.Position.Y = float32(worldHeight) - p.Height
 		p.Speed.Y = 0
-		p.switchDown = false // Reset switchDown for the next jump
+		p.switchDown = false // Reset for next jump
 		if p.State == Jumping {
 			p.setState(Idle) // Reset to Idle after landing
 		}
@@ -429,27 +474,37 @@ func (p *Player) Update(worldHeight int, worldWidth int, zombies []*Zombie) {
 
 	// Player state logic based on key inputs, prioritizing crouching
 	switch {
+	case rl.IsKeyDown(rl.KeyR):
+
+		if p.State != Reloading && p.Ammo < p.MaxAmmo {
+			fmt.Println("Reloading...")
+			rl.PlaySound(p.ReloadSound)
+			p.setState(Reloading)
+			p.IsReloading = true
+			p.Speed.X = 0
+			rl.StopSound(p.WalkSound)
+			rl.StopSound(p.RunSound)
+			rl.StopSound(p.ShootSound)
+		}
 
 	case rl.IsMouseButtonDown(rl.MouseRightButton) && p.State != Sitting && p.State != SittingShooting:
 		// Trigger grenade throw when holding down the left mouse button
 		p.setState(ThrowingGrenade)
 		p.FacingRight = true // Adjust if needed based on player orientation
 		p.Speed.X = 0
-
-		// if !rl.IsSoundPlaying(p.ShootSound) {
-		//     rl.PlaySound(p.ShootSound)
-		// }
-		//set throwingFinishedTime to the current time
-		//print throwingFinishedTime
-		// fmt.Println("Throwing grenade at: ", p.throwingFinishedTime)
-
-		// Ensure grenade throw functionality is only triggered once per hold
-		// if p.State == ThrowingGrenade && p.FrameCounter == 0 {
-		//     p.ThrowGrenade() // Trigger grenade throw at the start of the animation
-		// }
+		rl.StopSound(p.WalkSound)
 	case rl.IsKeyDown(rl.KeyLeftControl):
 		// Crouching has priority, halts forward movement
 		if rl.IsMouseButtonDown(rl.MouseLeftButton) {
+
+			//check if out of ammo
+			if p.Ammo == 0 {
+				fmt.Println("Out of ammo")
+				p.CurrentFrame = 0 // Lock shooting animation to first frame
+				rl.StopSound(p.ShootSound)
+				return
+			}
+
 			fmt.Println("Sitting and shooting")
 			p.setState(SittingShooting)
 			p.Shoot() // Call shoot when sitting and shooting
@@ -503,18 +558,24 @@ func (p *Player) Update(worldHeight int, worldWidth int, zombies []*Zombie) {
 				p.setState(Idle) // Reset to Idle after landing
 			}
 		}
-
+		// Check for reloading
 	case rl.IsMouseButtonDown(rl.MouseLeftButton) && p.State != Sitting && p.State != SittingShooting:
-		// Shooting (no horizontal movement)
-		p.setState(Shooting)
-		p.Speed.X = 0
-		if !rl.IsSoundPlaying(p.ShootSound) {
-			rl.PlaySound(p.ShootSound)
+		if p.State == Shooting && p.Ammo == 0 {
+			fmt.Println("Out of ammo")
+			p.CurrentFrame = 0 // Lock shooting animation to first frame
+			rl.StopSound(p.ShootSound)
+		} else {
+			// Shooting (no horizontal movement)
+			p.setState(Shooting)
+			p.Speed.X = 0
+			if !rl.IsSoundPlaying(p.ShootSound) {
+				rl.PlaySound(p.ShootSound)
+			}
+			//stop walking sound
+			rl.StopSound(p.WalkSound)
+			//stop running sound
+			rl.StopSound(p.RunSound)
 		}
-		//stop walking sound
-		rl.StopSound(p.WalkSound)
-		//stop running sound
-		rl.StopSound(p.RunSound)
 
 	case rl.IsKeyDown(rl.KeyD) && rl.IsKeyDown(rl.KeyLeftShift) && p.State != Shooting && p.State != Sitting:
 		// Running (right) if not shooting or crouching
@@ -559,6 +620,7 @@ func (p *Player) Update(worldHeight int, worldWidth int, zombies []*Zombie) {
 	case onGround && p.State != Resting && p.State != Sleeping:
 		// Idle if no movement
 		p.setState(Idle)
+		rl.StopSound(p.ReloadSound)
 		p.Speed.X = 0
 		rl.StopSound(p.WalkSound)
 		rl.StopSound(p.RunSound)
@@ -595,6 +657,9 @@ func (p *Player) Update(worldHeight int, worldWidth int, zombies []*Zombie) {
 		frames = p.RunFrames
 	case Shooting:
 		frames = p.ShootFrames
+	case Reloading:
+		frames = p.ReloadingFrames
+		frameDelay = 1000
 	case Sitting:
 		frames = p.SittingFrames
 	case SittingShooting:
@@ -650,24 +715,37 @@ func (p *Player) Draw() {
 	case Walking:
 		frame = p.WalkFrames[p.CurrentFrame]
 	case Running:
+
 		frame = p.RunFrames[p.CurrentFrame]
 	case Shooting:
+
 		frame = p.ShootFrames[p.CurrentFrame]
 	case Sitting:
+
 		frame = p.SittingFrames[p.CurrentFrame]
 	case SittingShooting:
+
 		frame = p.SittingShootingFrames[p.CurrentFrame]
+	case Reloading:
+		fmt.Println("Reloading frame: ", p.CurrentFrame)
+		frame = p.ReloadingFrames[p.CurrentFrame]
 	case Jumping:
+
 		frame = p.JumpFrames[p.CurrentFrame]
 	case Resting:
+
 		frame = p.RestingFrames[p.CurrentFrame]
 	case Sleeping:
+
 		frame = p.SleepingFrames[p.CurrentFrame]
 	case Dying:
+
 		frame = p.DyingFrames[p.CurrentFrame]
 	case ThrowingGrenade:
+
 		frame = p.GrenadeFrames[p.CurrentFrame]
 	default:
+
 		frame = p.IdleFrames[p.CurrentFrame]
 	}
 

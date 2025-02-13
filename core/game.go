@@ -30,6 +30,7 @@ const (
 	miniMapY      = 10
 	deadZoneWidth = 200
 )
+
 var (
 	testItem gameobjects.WorldItem
 )
@@ -51,7 +52,6 @@ func InitGame(worldWidth, worldHeight int) {
 	}
 
 	testItem = gameobjects.NewWorldItem(110, 1040, gameobjects.Weapon, "Sword", "assets/sword.png")
-
 
 }
 
@@ -79,33 +79,33 @@ func UpdateGame(worldHeight int) {
 
 	gameobjects.PlayerInstance.UpdateHeldItem()
 	// Check for item pickup with "E" key
-    if rl.IsKeyPressed(rl.KeyE) {
-        playerPosition := gameobjects.PlayerInstance.Position
-        itemPosition := testItem.Position
-        distance := rl.Vector2Distance(playerPosition, itemPosition)
+	if rl.IsKeyPressed(rl.KeyE) {
+		playerPosition := gameobjects.PlayerInstance.Position
+		itemPosition := testItem.Position
+		distance := rl.Vector2Distance(playerPosition, itemPosition)
 
-        // If within range, try adding item to inventory
-        if distance < 50 { // Adjust as needed
-            item := gameobjects.Item{
-                Type:  testItem.Type,
-                Name:  testItem.Name,
-                Image: testItem.Texture,
-            }
-            if gameobjects.PlayerInstance.Inventory.AddItem(item) {
-                fmt.Println("Item added to inventory:", testItem.Name)
-                testItem.Texture.ID = 0 // Remove from game world
-            } else {
-                fmt.Println("Inventory is full!")
-            }
+		// If within range, try adding item to inventory
+		if distance < 50 { // Adjust as needed
+			item := gameobjects.Item{
+				Type:  testItem.Type,
+				Name:  testItem.Name,
+				Image: testItem.Texture,
+			}
+			if gameobjects.PlayerInstance.Inventory.AddItem(item) {
+				fmt.Println("Item added to inventory:", testItem.Name)
+				testItem.Texture.ID = 0 // Remove from game world
+			} else {
+				fmt.Println("Inventory is full!")
+			}
 
-            // Debug: Print out inventory contents
-            fmt.Println("Current Inventory:")
-            for i, slot := range gameobjects.PlayerInstance.Inventory.Slots {
-                fmt.Printf("Slot %d: %s\n", i, slot.Name)
-            }
-        }
-    }
-	
+			// Debug: Print out inventory contents
+			fmt.Println("Current Inventory:")
+			for i, slot := range gameobjects.PlayerInstance.Inventory.Slots {
+				fmt.Printf("Slot %d: %s\n", i, slot.Name)
+			}
+		}
+	}
+
 	// Updating player and call Shoot to check for zombie hits
 	gameobjects.PlayerInstance.Update(worldHeight, worldWidth, zombies)
 	gameobjects.PlayerInstance.Shoot() // Call Shoot to check for zombie hits
@@ -173,49 +173,55 @@ func DrawGame() {
 	rl.EndMode2D()
 
 	// Draw inventory if open
-    if gameobjects.PlayerInstance.Inventory.IsOpen {
-        gameobjects.PlayerInstance.Inventory.DrawInventory()
-    }
+	if gameobjects.PlayerInstance.Inventory.IsOpen {
+		gameobjects.PlayerInstance.Inventory.DrawInventory()
+	}
 
 	// Draw the item in the game world only if it's not picked up
 	if testItem.Texture.ID != 0 {
 		testItem.Draw()
 	}
 
-	DrawPlayerHealthBar()
+	DrawPlayerHUD()
 
 	DrawMiniMap()
 
 	rl.EndDrawing()
 }
 
-
-
-func DrawPlayerHealthBar() {
+func DrawPlayerHUD() {
 	player := &gameobjects.PlayerInstance
-	healthBarWidth := 200.0
-	healthBarHeight := 20.0
-	healthPercent := player.Health / player.MaxHealth
+
+	// Health Bar
+	healthBarWidth := float32(200.0) // Convert to float32
+	healthBarHeight := float32(20.0)
+	healthPercent := float32(player.Health / player.MaxHealth) // Ensure consistency
 
 	// Background of health bar
-	rl.DrawRectangle(
-		20, 20, // Fixed position in top-left corner of screen
-		int32(healthBarWidth),
-		int32(healthBarHeight),
-		rl.DarkGray,
-	)
+	rl.DrawRectangle(20, 20, int32(healthBarWidth), int32(healthBarHeight), rl.DarkGray)
 
 	// Actual health level
-	rl.DrawRectangle(
-		20, 20,
-		int32(healthBarWidth*healthPercent),
-		int32(healthBarHeight),
-		rl.Red,
-	)
+	rl.DrawRectangle(20, 20, int32(healthBarWidth*healthPercent), int32(healthBarHeight), rl.Red)
 
-	// Optional: Add health text on the bar
+	// Health text
 	healthText := fmt.Sprintf("Health: %.0f/%.0f", player.Health, player.MaxHealth)
 	rl.DrawText(healthText, 30, 25, 10, rl.White)
+
+	// Ammo Bar (Under Health Bar)
+	ammoBarY := 45                 // Position below health bar
+	ammoBarWidth := float32(200.0) // Convert to float32
+	ammoBarHeight := float32(15.0)
+	ammoPercent := float32(player.Ammo) / float32(player.MaxAmmo)
+
+	// Background of ammo bar
+	rl.DrawRectangle(20, int32(ammoBarY), int32(ammoBarWidth), int32(ammoBarHeight), rl.DarkGray)
+
+	// Actual ammo level
+	rl.DrawRectangle(20, int32(ammoBarY), int32(ammoBarWidth*ammoPercent), int32(ammoBarHeight), rl.Yellow)
+
+	// Ammo text
+	ammoText := fmt.Sprintf("Ammo: %d/%d", player.Ammo, player.MaxAmmo)
+	rl.DrawText(ammoText, 30, int32(ammoBarY+3), 10, rl.White)
 }
 
 // Utility function to clamp an integer within a range
