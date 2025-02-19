@@ -70,6 +70,7 @@ type Player struct {
 	ShootSound     rl.Sound
 	ReloadSound    rl.Sound
 	EmptyClipSound rl.Sound
+	GrenadeExplode rl.Sound
 
 	// New attributes
 	Health    float64 // Player health
@@ -88,6 +89,13 @@ func (p *Player) UpdateHeldItem() {
 
 func (p *Player) Shoot() {
 	if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
+		if p.State != ThrowingGrenade {
+			p.setState(ThrowingGrenade)
+			if !rl.IsSoundPlaying(p.GrenadeExplode) {
+				rl.PlaySound(p.GrenadeExplode)
+			}
+			p.threwGrenade = false // Reset for next throw
+		}
 		if p.Ammo > 0 && !p.IsReloading {
 			bulletPosition := p.Position
 			bulletPosition.Y += p.Height / 2 // Adjust to shoot from the middle
@@ -164,6 +172,7 @@ func InitPlayer(worldWidth, worldHeight int) {
 	PlayerInstance.ShootSound = rl.LoadSound("assets/sounds/machineguneffect.wav")
 	PlayerInstance.ReloadSound = rl.LoadSound("assets/sounds/reload.mp3")
 	PlayerInstance.EmptyClipSound = rl.LoadSound("assets/sounds/emptyclip.mp3")
+	PlayerInstance.GrenadeExplode = rl.LoadSound("assets/sounds/grenade_explosion.mp3")
 
 	/***********************************LOAD SPRITES*********************************************** */
 
@@ -339,6 +348,9 @@ func (p *Player) ThrowGrenade() {
 	// Only allow throwing a grenade if 5 seconds have passed
 	if timeSinceThrow.Seconds() > 5 && !p.threwGrenade {
 		fmt.Println("Throwing grenade...")
+		if !rl.IsSoundPlaying(p.GrenadeExplode) {
+			rl.PlaySound(p.GrenadeExplode)
+		}
 		p.threwGrenade = false // Reset threwGrenade for the next throw
 
 		// Calculate explosion position in front of the player
@@ -373,6 +385,8 @@ func (p *Player) setState(state PlayerState) {
 
 	// Reset timers when changing to idle, resting, or sleeping states
 	if state == Idle {
+		//set reloading to false
+		p.IsReloading = false
 		p.IdleTimer = time.Now()
 		p.RestTimer = time.Time{}
 	} else if state == Resting {
@@ -386,12 +400,21 @@ func (p *Player) setState(state PlayerState) {
 /***********************************UPDATE*********************************************** */
 
 func (p *Player) Update(worldHeight int, worldWidth int, zombies []*Zombie) {
+	fmt.Println("isREloading: ", p.IsReloading)
 	// fmt.Println("players starting out y position: ", p.Position.Y)
-	if p.State == Reloading && p.CurrentFrame >= len(p.ReloadingFrames)-1 {
-		p.Ammo = p.MaxAmmo // Refill ammo
-		p.setState(Idle)
-		rl.StopSound(p.ReloadSound)
-		p.IsReloading = false
+	if p.State == Reloading {
+		fmt.Println("currents state is reloading")
+		if p.CurrentFrame >= len(p.ReloadingFrames)-1 {
+			fmt.Println("current frame is greater than or equal to the length of reloading frames")
+
+			p.Ammo = p.MaxAmmo // Refill ammo
+			p.IsReloading = false
+			p.setState(Idle)
+			rl.StopSound(p.ReloadSound)
+			p.FrameCounter = 0
+		} else {
+			p.FrameCounter++
+		}
 	}
 
 	// Update bullets
@@ -475,6 +498,7 @@ func (p *Player) Update(worldHeight int, worldWidth int, zombies []*Zombie) {
 	// Player state logic based on key inputs, prioritizing crouching
 	switch {
 	case rl.IsKeyDown(rl.KeyR):
+		fmt.Println("still have ammo: ", p.Ammo)
 
 		if p.State != Reloading && p.Ammo < p.MaxAmmo {
 			fmt.Println("Reloading...")
@@ -490,6 +514,8 @@ func (p *Player) Update(worldHeight int, worldWidth int, zombies []*Zombie) {
 	case rl.IsMouseButtonDown(rl.MouseRightButton) && p.State != Sitting && p.State != SittingShooting:
 		// Trigger grenade throw when holding down the left mouse button
 		p.setState(ThrowingGrenade)
+		//set reloading to false
+		p.IsReloading = false
 		p.FacingRight = true // Adjust if needed based on player orientation
 		p.Speed.X = 0
 		rl.StopSound(p.WalkSound)
@@ -682,15 +708,11 @@ func (p *Player) Update(worldHeight int, worldWidth int, zombies []*Zombie) {
 		//only set to true if on last frame
 		if p.CurrentFrame == len(p.GrenadeFrames)-1 {
 			fmt.Println("Grenade thrown")
-			//printout the threw grenade
-			fmt.Println("Threw grenade: ", p.threwGrenade)
-			//print out the last frame
-			fmt.Println("Last frame: ", p.CurrentFrame)
-			//if on last frame set state to idle
-			p.setState(Idle)
 			p.ThrowGrenade()
 			p.threwGrenade = true
+			p.setState(Idle) // Ensure transition happens only after the throw
 		}
+
 	default:
 		frames = p.IdleFrames
 	}
