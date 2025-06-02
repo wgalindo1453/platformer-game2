@@ -118,6 +118,8 @@ func main() {
 	core.InitGame(worldWidth, worldHeight)
 
 	for !rl.WindowShouldClose() && !gameOver {
+		//fmt.Println("Game loop running...")
+
 		core.UpdateGame(worldHeight)
 		gameOver = gameobjects.PlayerInstance.IsGameOver()
 		core.DrawGame()
@@ -128,4 +130,6 @@ func main() {
 		PlayGameOverVideo()  // Play Game Over video inside window
 		ShowTryAgainButton() // Show retry button after video
 	}
+
+	rl.CloseWindow() // 🔧 Always close the window properly
 }

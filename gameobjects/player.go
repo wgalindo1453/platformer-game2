@@ -2,10 +2,11 @@ package gameobjects
 
 import (
 	"fmt"
+	rl "github.com/gen2brain/raylib-go/raylib"
+	"log"
+	"platformer-game/database" // Add this line
 	"platformer-game/rendering"
 	"time"
-
-	rl "github.com/gen2brain/raylib-go/raylib"
 )
 
 type PlayerState int
@@ -86,16 +87,28 @@ func (p *Player) UpdateHeldItem() {
 		p.HeldItem = Item{} // No item held if slot is empty
 	}
 }
+func (inv *Inventory) SaveToDB() {
+	db := database.DB
+	for i, item := range inv.Slots {
+		_, err := db.Exec(`
+			INSERT OR REPLACE INTO inventory (slot, type, name)
+			VALUES (?, ?, ?);`,
+			i, item.Type, item.Name)
+		if err != nil {
+			log.Println("Failed to save inventory item:", err)
+		}
+	}
+}
 
 func (p *Player) Shoot() {
 	if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
-		if p.State != ThrowingGrenade {
-			p.setState(ThrowingGrenade)
-			if !rl.IsSoundPlaying(p.GrenadeExplode) {
-				rl.PlaySound(p.GrenadeExplode)
-			}
-			p.threwGrenade = false // Reset for next throw
-		}
+		//if p.State != ThrowingGrenade {
+		//	p.setState(ThrowingGrenade)
+		//	if !rl.IsSoundPlaying(p.GrenadeExplode) {
+		//		rl.PlaySound(p.GrenadeExplode)
+		//	}
+		//	p.threwGrenade = false // Reset for next throw
+		//}
 		if p.Ammo > 0 && !p.IsReloading {
 			bulletPosition := p.Position
 			bulletPosition.Y += p.Height / 2 // Adjust to shoot from the middle
@@ -318,7 +331,7 @@ func InitPlayer(worldWidth, worldHeight int) {
 	}
 
 	for _, frame := range dyingFrames {
-		PlayerInstance.DyingFrames = append(PlayerInstance.DyingFrames, spriteSheet2.ImageAt(frame, rl.Blank))
+		PlayerInstance.DyingFrames = append(PlayerInstance.DyingFrames, spriteSheet3.ImageAt(frame, rl.Blank))
 	}
 
 	//Grenade frames

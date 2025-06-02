@@ -2,12 +2,11 @@ package core
 
 import (
 	"fmt"
-	"math/rand"
-	"time"
-
-	"platformer-game/gameobjects"
-
 	rl "github.com/gen2brain/raylib-go/raylib"
+	"math/rand"
+	"platformer-game/database" // ✅ Add this
+	"platformer-game/gameobjects"
+	"time"
 )
 
 var (
@@ -41,6 +40,17 @@ func InitGame(worldWidth, worldHeight int) {
 	// Initializing  player
 	gameobjects.InitPlayer(worldWidth, worldHeight)
 
+	database.InitDatabase() // Step 1: connect to SQLite
+
+	// ✅ Preload item textures by name
+	itemTextures := map[string]rl.Texture2D{
+		"Sword": rl.LoadTexture("assets/sword.png"),
+		// Add more as needed (e.g., HealthPack)
+	}
+
+	// ✅ Load inventory contents from SQLite
+	gameobjects.PlayerInstance.Inventory.LoadFromDB(itemTextures)
+
 	// Initializing zombies
 	initZombies(5) // Spawning 5 zombies
 
@@ -71,6 +81,11 @@ func initZombies(numZombies int) {
 
 func UpdateGame(worldHeight int) {
 	gameobjects.PlayerInstance.Inventory.UpdateSelection()
+
+	if rl.IsKeyPressed(rl.KeyS) {
+		gameobjects.PlayerInstance.Inventory.SaveToDB()
+		fmt.Println("Inventory saved to SQLite.")
+	}
 
 	// Toggle inventory display with 'I' key
 	if rl.IsKeyPressed(rl.KeyI) {
