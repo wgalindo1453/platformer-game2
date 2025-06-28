@@ -236,6 +236,7 @@ func (inv *Inventory) AddItem(item Item) bool {
 	}
 	return false // Return false if inventory is full
 }
+
 func (inv *Inventory) deleteSlotFromDB(slotIndex int) {
 	// Adjust the table/column names to match your schema
 	_, err := database.DB.Exec(`DELETE FROM inventory WHERE slot = ?`, slotIndex)

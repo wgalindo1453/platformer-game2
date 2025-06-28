@@ -16,6 +16,20 @@ var (
 	zombies    []*gameobjects.Zombie
 )
 
+// core/game.go (at top)
+type SceneID int
+
+var (
+	outsideBG    rl.Texture2D
+	insideBG     rl.Texture2D
+	currentScene = SceneOutside
+)
+
+const (
+	SceneOutside SceneID = iota
+	SceneInside
+)
+
 const (
 	worldWidth   = 5000
 	worldHeight  = 1200
@@ -33,17 +47,34 @@ const (
 
 // We now have two world items: one Sword and one Health Pack.
 var (
-	testItem  gameobjects.WorldItem
-	testItem2 gameobjects.WorldItem
-	testItem3 gameobjects.WorldItem // For the BronzeKey
-	doors     []*gameobjects.Door   // ← add this
-
+	testItem    gameobjects.WorldItem
+	testItem2   gameobjects.WorldItem
+	testItem3   gameobjects.WorldItem // For the BronzeKey
+	doors       []*gameobjects.Door   // ← add this
+	insideDoors []*gameobjects.Door
+	fadeAlpha   float32 = 0 // 0 = fully transparent, 1 = fully black
+	fading      bool    = false
+	fadeDir     float32 = 0            // −1 = fade out, +1 = fade in
+	targetScene SceneID = SceneOutside // where we want to go after fading
 )
 
 func InitGame(worldW, worldH int) {
 	// 1) Load a background texture
-	background = rl.LoadTexture("assets/levelonebg.png")
+	background = rl.LoadTexture("assets/background2.png")
 	doorSheet := "assets/sprites/doors_spritesheet.png"
+
+	// Load outside and inside backgrounds exactly once:
+	outsideBG = rl.LoadTexture("assets/levelonebg.png")
+	insideBG = rl.LoadTexture("assets/background2.png")
+	src := rl.NewRectangle(0, 0, float32(insideBG.Width), float32(insideBG.Height))
+	dest := rl.NewRectangle(0, 0, float32(screenWidth), float32(screenHeight))
+	origin := rl.NewVector2(0, 0)
+	rotation := float32(0)
+
+	rl.DrawTexturePro(insideBG, src, dest, origin, rotation, rl.White)
+	//scale insideBG to fit the screen
+
+	currentScene = SceneOutside
 
 	// 2) Initialize the player (sets up PlayerInstance with default health, inventory, etc.)
 	gameobjects.InitPlayer(worldW, worldH)
@@ -59,7 +90,7 @@ func InitGame(worldW, worldH int) {
 
 	}
 
-	// 5) Load whatever was saved in the “inventory” table:
+	// 5) Load whatever was saved in the "inventory" table:
 	gameobjects.PlayerInstance.Inventory.LoadFromDB(itemTextures)
 
 	// 6) Spawn two WorldItems in the scene:
@@ -124,31 +155,43 @@ func initZombies(numZombies int) {
 func UpdateGame(worldH int) {
 	inv := &gameobjects.PlayerInstance.Inventory
 
-	// 1) inventory mouse/keyboard
+	// 1) Let the inventory handle mouse/keyboard (drag/drop, context menu, etc.)
 	inv.HandleMouse()
 
-	// 2) if a key was just used, unlock its door
+	// 2) If the player just used a key, attempt to unlock the matching door
 	if keyID := gameobjects.PlayerInstance.UsedKeyID; keyID != "" {
-		for _, d := range doors {
-			if d.ID == keyID {
-				d.TryUnlock()
-				break
+		if currentScene == SceneOutside {
+			for _, d := range doors {
+				if d.ID == keyID {
+					d.TryUnlock()
+					break
+				}
+			}
+		} else /* SceneInside */ {
+			for _, d := range insideDoors {
+				if d.ID == keyID {
+					d.TryUnlock()
+					break
+				}
 			}
 		}
 		gameobjects.PlayerInstance.UsedKeyID = ""
 	}
 
-	// 3) toggle inventory with I
+	// 3) Toggle inventory on/off with "I"
 	if rl.IsKeyPressed(rl.KeyI) {
 		inv.IsOpen = !inv.IsOpen
 	}
+	if rl.IsKeyPressed(rl.KeyK) {
+		background = rl.LoadTexture("assets/background2.png")
+	}
 
-	// 4) pickup world items when E is pressed
 	playerPos := gameobjects.PlayerInstance.Position
 
-	// Sword pickup
-	if rl.IsKeyPressed(rl.KeyE) && testItem.Texture.ID != 0 {
-		if rl.Vector2Distance(playerPos, testItem.Position) < 50 {
+	// 4) If we're outside, handle "E" to pick up world items
+	if currentScene == SceneOutside && rl.IsKeyPressed(rl.KeyE) {
+		// Sword pickup
+		if testItem.Texture.ID != 0 && rl.Vector2Distance(playerPos, testItem.Position) < 50 {
 			it := gameobjects.Item{
 				Type:  testItem.Type,
 				Name:  testItem.Name,
@@ -162,10 +205,8 @@ func UpdateGame(worldH int) {
 				log.Println("Inventory full!")
 			}
 		}
-	}
-	// HealthPack pickup
-	if rl.IsKeyPressed(rl.KeyE) && testItem2.Texture.ID != 0 {
-		if rl.Vector2Distance(playerPos, testItem2.Position) < 50 {
+		// HealthPack pickup
+		if testItem2.Texture.ID != 0 && rl.Vector2Distance(playerPos, testItem2.Position) < 50 {
 			it2 := gameobjects.Item{
 				Type:  testItem2.Type,
 				Name:  testItem2.Name,
@@ -179,10 +220,8 @@ func UpdateGame(worldH int) {
 				log.Println("Inventory full!")
 			}
 		}
-	}
-	// BronzeKey pickup
-	if rl.IsKeyPressed(rl.KeyE) && testItem3.Texture.ID != 0 {
-		if rl.Vector2Distance(playerPos, testItem3.Position) < 50 {
+		// BronzeKey pickup
+		if testItem3.Texture.ID != 0 && rl.Vector2Distance(playerPos, testItem3.Position) < 50 {
 			it3 := gameobjects.Item{
 				Type:  testItem3.Type,
 				Name:  testItem3.Name,
@@ -198,61 +237,106 @@ func UpdateGame(worldH int) {
 		}
 	}
 
-	// 5) update player & shooting
-	gameobjects.PlayerInstance.Update(worldH, worldWidth, zombies)
-	gameobjects.PlayerInstance.Shoot()
-
-	// 6) update all doors (advance any opening animations)
-	for _, d := range doors {
-		d.Update()
+	// 5) Update player physics/movement/shooting every frame (pass zombies only if outside)
+	if currentScene == SceneOutside {
+		gameobjects.PlayerInstance.Update(worldH, worldWidth, zombies)
+		gameobjects.PlayerInstance.Shoot()
+	} else /* SceneInside */ {
+		// No zombies inside; pass nil
+		gameobjects.PlayerInstance.Update(worldH, worldWidth, nil)
+		gameobjects.PlayerInstance.Shoot()
 	}
 
-	// 7) update zombies
-	for i := len(zombies) - 1; i >= 0; i-- {
-		z := zombies[i]
-		z.Update(worldWidth, playerPos)
-		if !z.IsAlive &&
-			z.State == gameobjects.ZombieDead &&
-			z.CurrentFrame == len(z.DeadFrames)-1 {
-			z.UnloadSounds()
-			zombies = append(zombies[:i], zombies[i+1:]...)
+	// 6) Advance door animations and handle scene‐switch when a door finishes opening
+	// door‐opening fade logic
+	if !fading {
+		// advance each door
+		if currentScene == SceneOutside {
+			for _, d := range doors {
+				d.Update()
+				if d.State == gameobjects.DoorOpen {
+					targetScene = SceneInside
+					fading = true
+					fadeDir = -1
+					break
+				}
+			}
+		} else {
+			for _, d := range insideDoors {
+				d.Update()
+				if d.State == gameobjects.DoorOpen {
+					targetScene = SceneOutside
+					fading = true
+					fadeDir = -1
+					break
+				}
+			}
+		}
+	}
+	if fading {
+		dt := rl.GetFrameTime()
+		fadeAlpha += fadeDir * dt
+		if fadeAlpha <= 0 {
+			// at black → swap scene
+			fadeAlpha = 0
+			fading = true // now fade in
+			fadeDir = +1
+			currentScene = targetScene
+
+			// reposition & clear/spawn entities
+			if currentScene == SceneInside {
+				gameobjects.PlayerInstance.Position = rl.NewVector2(
+					doors[0].Position.X+doors[0].Width+10,
+					float32(worldHeight)-55,
+				)
+				zombies = nil
+				// create insideDoors…
+			} else {
+				// back to outside
+				gameobjects.PlayerInstance.Position = rl.NewVector2(
+					insideDoors[0].Position.X-gameobjects.PlayerInstance.Width-10,
+					float32(worldHeight)-55,
+				)
+				initZombies(5)
+			}
+		} else if fadeAlpha >= 1 {
+			fadeAlpha = 1
+			fading = false
 		}
 	}
 
-	// 8) simple door‐collision: block player if not fully open
-	//for _, d := range doors {
-	//	if d.State != gameobjects.DoorOpen {
-	//		px := gameobjects.PlayerInstance.Position.X
-	//		py := gameobjects.PlayerInstance.Position.Y
-	//		pw := gameobjects.PlayerInstance.Width
-	//		ph := gameobjects.PlayerInstance.Height
-	//		if d.CheckCollision(px, py, pw, ph) {
-	//			// push the player back by one pixel on x-axis
-	//			if gameobjects.PlayerInstance.FacingRight {
-	//				gameobjects.PlayerInstance.Position.X = d.Position.X - pw - 1
-	//			} else {
-	//				gameobjects.PlayerInstance.Position.X = d.Position.X + d.Width + 1
-	//			}
-	//			gameobjects.PlayerInstance.Speed.X = 0
-	//		}
-	//	}
-	//}
+	// 7) Update zombies—but only if we're outside
+	if currentScene == SceneOutside {
+		for i := len(zombies) - 1; i >= 0; i-- {
+			z := zombies[i]
+			z.Update(worldWidth, playerPos)
+			if !z.IsAlive &&
+				z.State == gameobjects.ZombieDead &&
+				z.CurrentFrame == len(z.DeadFrames)-1 {
+				z.UnloadSounds()
+				zombies = append(zombies[:i], zombies[i+1:]...)
+			}
+		}
+	}
 
-	// 9) camera follow with dead‐zone
+	// 9) Camera follows the player with a small dead‐zone, regardless of scene
 	playerX := gameobjects.PlayerInstance.Position.X
 	if playerX > camera.Target.X+float32(screenWidth)/2-deadZoneWidth {
 		camera.Target.X = playerX - float32(screenWidth)/2 + deadZoneWidth
 	} else if playerX < camera.Target.X-float32(screenWidth)/2+deadZoneWidth {
 		camera.Target.X = playerX + float32(screenWidth)/2 - deadZoneWidth
 	}
-	camera.Target.X = clampFloat(camera.Target.X,
+	camera.Target.X = clampFloat(
+		camera.Target.X,
 		float32(screenWidth)/2,
-		float32(worldWidth)-float32(screenWidth)/2)
-	camera.Target.Y = clampFloat(camera.Target.Y,
+		float32(worldWidth)-float32(screenWidth)/2,
+	)
+	camera.Target.Y = clampFloat(
+		camera.Target.Y,
 		float32(screenHeight)/2,
-		float32(worldHeight)-float32(screenHeight)/2)
+		float32(worldHeight)-float32(screenHeight)/2,
+	)
 }
-
 func DrawMiniMap() {
 	rl.DrawRectangle(miniMapX, miniMapY, miniMapWidth, miniMapHeight, rl.LightGray)
 
@@ -274,46 +358,94 @@ func DrawMiniMap() {
 func DrawGame() {
 	rl.BeginDrawing()
 	rl.ClearBackground(rl.RayWhite)
+	playerPos := gameobjects.PlayerInstance.Position
+	log.Printf("Player Position: (%.2f, %.2f)", playerPos.X, playerPos.Y)
 
-	// 1) Draw world with camera
+	// ─── 1) Draw the correct world background (under the camera) ───
 	rl.BeginMode2D(camera)
-	rl.DrawTexture(background, 0, 0, rl.White)
+	if currentScene == SceneOutside {
+		DrawWorldBG(outsideBG)
 
-	// 2) Draw world items (only if their texture ID != 0)
-	if testItem.Texture.ID != 0 {
-		testItem.Draw()
+		// 2) Draw world items (only if their texture ID != 0)
+		if testItem.Texture.ID != 0 {
+			testItem.Draw()
+		}
+		if testItem2.Texture.ID != 0 {
+			testItem2.Draw()
+		}
+		if testItem3.Texture.ID != 0 {
+			testItem3.Draw()
+		}
+
+		// ─── Draw all doors (locked or open) ───
+		for _, d := range doors {
+			d.Draw()
+		}
+
+		// 3) Draw player (including any equipped item)
+		gameobjects.PlayerInstance.Draw()
+
+		// 4) Draw all zombies
+		for _, z := range zombies {
+			z.Draw()
+		}
+	} else {
+		DrawWorldBG(insideBG)
 	}
-	if testItem2.Texture.ID != 0 {
-		testItem2.Draw()
-	}
-	if testItem3.Texture.ID != 0 {
-		testItem3.Draw()
+	// ─── 1) Draw the correct background in _screen_-space ───
+	if currentScene == SceneOutside {
+		// scale outsideBG to screen
+		scaleAndDrawFullScreen(outsideBG)
+	} else {
+		// scale insideBG to screen
+		scaleAndDrawFullScreen(insideBG)
 	}
 
-	// ─── Draw all doors (locked or open) ───
-	for _, d := range doors {
-		d.Draw()
+	// ─── 2) Now draw your world under the camera ───
+	rl.BeginMode2D(camera)
+	if currentScene == SceneOutside {
+		// … draw outside items, doors, zombies …
+	} else {
+		for _, d := range doors {
+			d.Draw()
+		}
+		// … draw inside doors …
 	}
 
-	// 3) Draw player (including any equipped item)
+	// ─── 3) Draw the player (always) ───
 	gameobjects.PlayerInstance.Draw()
-
-	// 4) Draw all zombies
-	for _, z := range zombies {
-		z.Draw()
-	}
 	rl.EndMode2D()
 
-	// 5) If inventory is open, draw the grid + items or context menu
+	// ─── 4) UI & inventory ───
 	if gameobjects.PlayerInstance.Inventory.IsOpen {
 		gameobjects.PlayerInstance.Inventory.DrawInventory()
 	}
-
-	// 6) Draw UI (health bar, ammo bar, minimap)
 	DrawPlayerHUD()
 	DrawMiniMap()
 
 	rl.EndDrawing()
+}
+
+// scaleAndDrawFullScreen scales `tex` to exactly 800×450 and draws it at (0,0).
+func scaleAndDrawFullScreen(tex rl.Texture2D) {
+	src := rl.NewRectangle(0, 0,
+		float32(tex.Width), float32(tex.Height))
+	dest := rl.NewRectangle(0, 0,
+		float32(screenWidth), float32(screenHeight))
+	origin := rl.NewVector2(0, 0)
+	rl.DrawTexturePro(tex, src, dest, origin, 0, rl.White)
+}
+
+func DrawWorldBG(tex rl.Texture2D) {
+	rl.DrawTexturePro(
+		tex,
+		rl.Rectangle{X: 0, Y: 0,
+			Width:  float32(tex.Width),
+			Height: float32(tex.Height)},
+		rl.Rectangle{X: 0, Y: float32(worldHeight) - float32(screenHeight),
+			Width:  float32(worldWidth),
+			Height: float32(screenHeight)},
+		rl.Vector2{}, 0, rl.White)
 }
 
 func DrawPlayerHUD() {

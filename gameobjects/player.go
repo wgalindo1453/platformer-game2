@@ -74,10 +74,10 @@ type Player struct {
 	GrenadeExplode rl.Sound
 
 	// New attributes
-	Health    float64 // Player health
-	MaxHealth float64 // Maximum health to keep track for the health bar
-	Inventory Inventory
-	HeldItem  Item // The currently held item
+	Health    float64   // Player health
+	MaxHealth float64   // Maximum health to keep track for the health bar
+	Inventory Inventory // Player's inventory
+	HeldItem  Item      // The currently held item
 
 	UsedKeyID string // if non‐empty, means “player just used this key”
 }
@@ -565,14 +565,14 @@ func (p *Player) Update(worldHeight int, worldWidth int, zombies []*Zombie) {
 			rl.StopSound(p.ShootSound)
 		}
 
-	case rl.IsMouseButtonDown(rl.MouseRightButton) && p.State != Sitting && p.State != SittingShooting:
-		// Trigger grenade throw when holding down the left mouse button
-		p.setState(ThrowingGrenade)
-		//set reloading to false
-		p.IsReloading = false
-		p.FacingRight = true // Adjust if needed based on player orientation
-		p.Speed.X = 0
-		rl.StopSound(p.WalkSound)
+	//case rl.IsMouseButtonDown(rl.MouseRightButton) && p.State != Sitting && p.State != SittingShooting:
+	//	// Trigger grenade throw when holding down the left mouse button
+	//	p.setState(ThrowingGrenade)
+	//	//set reloading to false
+	//	p.IsReloading = false
+	//	p.FacingRight = true // Adjust if needed based on player orientation
+	//	p.Speed.X = 0
+	//	rl.StopSound(p.WalkSound)
 	case rl.IsKeyDown(rl.KeyLeftControl):
 		// Crouching has priority, halts forward movement
 		if rl.IsMouseButtonDown(rl.MouseLeftButton) {
